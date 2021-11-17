@@ -3742,6 +3742,31 @@ clutter_stage_notify_grab (ClutterStage *stage,
 }
 
 ClutterGrab *
+clutter_grab_ref (ClutterGrab *grab)
+{
+  return grab;
+}
+
+void
+clutter_grab_unref (ClutterGrab *grab)
+{
+}
+
+G_DEFINE_BOXED_TYPE (ClutterGrab, clutter_grab,
+                     clutter_grab_ref, clutter_grab_unref)
+
+/**
+ * clutter_stage_grab:
+ * @stage: The #ClutterStage
+ * @actor: The actor grabbing input
+ *
+ * Grabs input onto a certain actor. Events will be propagated as
+ * usual inside its hierarchy.
+ *
+ * Returns: (transfer none): (nullable): an opaque #ClutterGrab handle, drop
+ *   with clutter_grab_dismiss()
+ **/
+ClutterGrab *
 clutter_stage_grab (ClutterStage *stage,
                     ClutterActor *actor)
 {
@@ -3824,6 +3849,13 @@ clutter_stage_unlink_grab (ClutterStage *stage,
   grab->prev = NULL;
 }
 
+/**
+ * clutter_grab_dismiss:
+ * @grab: Grab to undo
+ *
+ * Removes a grab. If this grab is effective, crossing events
+ * will be generated to indicate the change in event redirection.
+ **/
 void
 clutter_grab_dismiss (ClutterGrab *grab)
 {
@@ -3833,6 +3865,16 @@ clutter_grab_dismiss (ClutterGrab *grab)
   g_free (grab);
 }
 
+/**
+ * clutter_grab_get_seat_state:
+ * @grab: a Grab handle
+ *
+ * Returns the windowing-level state of the
+ * grab, the devices that are guaranteed to be
+ * grabbed.
+ *
+ * Returns: The state of the grab.
+ **/
 ClutterGrabState
 clutter_grab_get_seat_state (ClutterGrab *grab)
 {
@@ -3841,6 +3883,14 @@ clutter_grab_get_seat_state (ClutterGrab *grab)
   return grab->stage->priv->grab_state;
 }
 
+/**
+ * clutter_stage_get_grab_actor:
+ * @stage: a #ClutterStage
+ *
+ * Gets the actor that currently holds a grab.
+ *
+ * Returns: (transfer none): The grabbing actor
+ **/
 ClutterActor *
 clutter_stage_get_grab_actor (ClutterStage *stage)
 {
