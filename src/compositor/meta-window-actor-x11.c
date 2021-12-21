@@ -1316,9 +1316,6 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
                              ClutterPaintContext *paint_context)
 {
   MetaWindowActorX11 *actor_x11 = META_WINDOW_ACTOR_X11 (actor);
-  MetaWindow *window;
-  gboolean appears_focused;
-  MetaShadow *shadow;
 
  /* This window got damage when obscured; we set up a timer
   * to send frame completion events, but since we're drawing
@@ -1328,51 +1325,6 @@ meta_window_actor_x11_paint (ClutterActor        *actor,
     {
       remove_frame_messages_timer (actor_x11);
       assign_frame_counter_to_frames (actor_x11);
-    }
-
-  window = meta_window_actor_get_meta_window (META_WINDOW_ACTOR (actor_x11));
-  appears_focused = meta_window_appears_focused (window);
-  shadow = appears_focused ? actor_x11->focused_shadow
-                           : actor_x11->unfocused_shadow;
-
-  if (shadow)
-    {
-      MetaShadowParams params;
-      cairo_rectangle_int_t shape_bounds;
-      cairo_region_t *clip = actor_x11->shadow_clip;
-      CoglFramebuffer *framebuffer;
-
-      get_shape_bounds (actor_x11, &shape_bounds);
-      get_shadow_params (actor_x11, appears_focused, &params);
-
-      /* The frame bounds are already subtracted from actor_x11->shadow_clip
-       * if that exists.
-       */
-      if (!clip && clip_shadow_under_window (actor_x11))
-        {
-          cairo_rectangle_int_t bounds;
-
-          get_shadow_bounds (actor_x11, appears_focused, &bounds);
-          clip = cairo_region_create_rectangle (&bounds);
-
-          if (actor_x11->frame_bounds)
-            cairo_region_subtract (clip, actor_x11->frame_bounds);
-        }
-
-      framebuffer = clutter_paint_context_get_framebuffer (paint_context);
-      meta_shadow_paint (shadow,
-                         framebuffer,
-                         params.x_offset + shape_bounds.x,
-                         params.y_offset + shape_bounds.y,
-                         shape_bounds.width,
-                         shape_bounds.height,
-                         (clutter_actor_get_paint_opacity (actor) *
-                          params.opacity * window->opacity) / (255 * 255),
-                         clip,
-                         clip_shadow_under_window (actor_x11));
-
-      if (clip && clip != actor_x11->shadow_clip)
-        cairo_region_destroy (clip);
     }
 
   CLUTTER_ACTOR_CLASS (meta_window_actor_x11_parent_class)->paint (actor,

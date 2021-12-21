@@ -36,7 +36,6 @@
 #include "meta/meta-x11-display.h"
 #include "meta-startup-notification-x11.h"
 #include "meta-x11-stack-private.h"
-#include "ui/ui.h"
 
 typedef struct _MetaGroupPropHooks  MetaGroupPropHooks;
 typedef struct _MetaWindowPropHooks MetaWindowPropHooks;
@@ -122,8 +121,6 @@ struct _MetaX11Display
 
   MetaAlarmFilter alarm_filter;
   gpointer alarm_filter_data;
-
-  MetaUI *ui;
 
   struct {
     Window xwindow;

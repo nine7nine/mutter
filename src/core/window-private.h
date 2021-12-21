@@ -914,4 +914,7 @@ gboolean meta_window_unit_cgroup_equal (MetaWindow *window1,
 void meta_window_check_alive_on_event (MetaWindow *window,
                                        uint32_t    timestamp);
 
+void meta_window_set_frame_xwindow (MetaWindow *window,
+                                    Window      xframe);
+
 #endif

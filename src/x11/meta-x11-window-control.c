@@ -205,13 +205,3 @@ meta_x11_wm_grab_buttons  (MetaX11Display *x11_display,
   meta_verbose ("Grabbing buttons on frame 0x%lx", frame_xwindow);
   meta_display_grab_window_buttons (display, frame_xwindow);
 }
-
-void
-meta_x11_wm_set_screen_cursor (MetaX11Display *x11_display,
-                               Window          frame_on_screen,
-                               MetaCursor      cursor)
-{
-  MetaWindow *window = window_from_frame (x11_display, frame_on_screen);
-
-  meta_frame_set_screen_cursor (window->frame, cursor);
-}

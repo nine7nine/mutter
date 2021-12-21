@@ -965,6 +965,8 @@ meta_display_new (MetaContext  *context,
       meta_display_unset_input_focus (display, timestamp);
     }
 
+  meta_frame_initialize (display);
+
   display->sound_player = g_object_new (META_TYPE_SOUND_PLAYER, NULL);
 
   /* Done opening new display */
@@ -2056,31 +2058,6 @@ meta_display_check_threshold_reached (MetaDisplay *display,
     display->grab_threshold_movement_reached = TRUE;
 }
 
-void
-meta_display_queue_retheme_all_windows (MetaDisplay *display)
-{
-  GSList* windows;
-  GSList *tmp;
-
-  windows = meta_display_list_windows (display, META_LIST_DEFAULT);
-  tmp = windows;
-  while (tmp != NULL)
-    {
-      MetaWindow *window = tmp->data;
-
-      meta_window_queue (window, META_QUEUE_MOVE_RESIZE);
-      meta_window_frame_size_changed (window);
-      if (window->frame)
-        {
-          meta_frame_queue_draw (window->frame);
-        }
-
-      tmp = tmp->next;
-    }
-
-  g_slist_free (windows);
-}
-
 /*
  * Stores whether syncing is currently enabled.
  */
@@ -2724,7 +2701,6 @@ prefs_changed_callback (MetaPreference pref,
   switch (pref)
     {
     case META_PREF_DRAGGABLE_BORDER_WIDTH:
-      meta_display_queue_retheme_all_windows (display);
       break;
     case META_PREF_CURSOR_THEME:
     case META_PREF_CURSOR_SIZE:

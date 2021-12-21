@@ -74,8 +74,4 @@ MetaGrabOp meta_x11_wm_get_grab_op (MetaX11Display *x11_display);
 void meta_x11_wm_grab_buttons  (MetaX11Display *x11_display,
                                 Window          frame_xwindow);
 
-void meta_x11_wm_set_screen_cursor (MetaX11Display *x11_display,
-                                    Window          frame_on_screen,
-                                    MetaCursor      cursor);
-
 #endif /* META_X11_WINDOW_CONTROL_H */

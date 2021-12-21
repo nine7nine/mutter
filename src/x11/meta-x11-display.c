@@ -34,6 +34,7 @@
 #include "x11/meta-x11-display-private.h"
 
 #include <gdk/gdk.h>
+#include <gdk/gdkx.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -146,12 +147,6 @@ meta_x11_display_dispose (GObject *object)
 
   meta_x11_selection_shutdown (x11_display);
   meta_x11_display_unmanage_windows (x11_display);
-
-  if (x11_display->ui)
-    {
-      meta_ui_free (x11_display->ui);
-      x11_display->ui = NULL;
-    }
 
   if (x11_display->no_focus_window != None)
     {
@@ -1243,7 +1238,6 @@ meta_x11_display_new (MetaDisplay *display, GError **error)
                                         meta_unsigned_long_equal);
 
   x11_display->groups_by_leader = NULL;
-  x11_display->ui = NULL;
   x11_display->composite_overlay_window = None;
   x11_display->guard_window = None;
   x11_display->leader_window = None;
@@ -1334,7 +1328,6 @@ meta_x11_display_new (MetaDisplay *display, GError **error)
 
   set_desktop_geometry_hint (x11_display);
 
-  x11_display->ui = meta_ui_new (x11_display);
   x11_display->x11_stack = meta_x11_stack_new (x11_display);
 
   x11_display->keys_grabbed = FALSE;

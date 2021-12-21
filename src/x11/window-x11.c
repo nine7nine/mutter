@@ -222,8 +222,7 @@ send_configure_notify (MetaWindow *window)
   event.xconfigure.display = x11_display->xdisplay;
   event.xconfigure.event = window->xwindow;
   event.xconfigure.window = window->xwindow;
-  event.xconfigure.x = priv->client_rect.x - priv->border_width;
-  event.xconfigure.y = priv->client_rect.y - priv->border_width;
+
   if (window->frame)
     {
       if (window->withdrawn)
@@ -244,9 +243,26 @@ send_configure_notify (MetaWindow *window)
           event.xconfigure.x += window->frame->rect.x;
           event.xconfigure.y += window->frame->rect.y;
         }
+
+      {
+        MetaFrameBorders borders;
+        cairo_rectangle_int_t rect;
+        meta_window_frame_rect_to_client_rect (window, &window->rect, &rect);
+        event.xconfigure.x = rect.x;
+        event.xconfigure.y = rect.y;
+        event.xconfigure.width = rect.width;
+        event.xconfigure.height = rect.height;
+
+        meta_frame_calc_borders (window->frame, &borders);
+      }
     }
-  event.xconfigure.width = priv->client_rect.width;
-  event.xconfigure.height = priv->client_rect.height;
+  else
+    {
+      event.xconfigure.x = priv->client_rect.x - priv->border_width;
+      event.xconfigure.y = priv->client_rect.y - priv->border_width;
+      event.xconfigure.width = priv->client_rect.width;
+      event.xconfigure.height = priv->client_rect.height;
+    }
   event.xconfigure.border_width = priv->border_width; /* requested not actual */
   event.xconfigure.above = None; /* FIXME */
   event.xconfigure.override_redirect = False;
@@ -538,6 +554,13 @@ meta_window_x11_manage (MetaWindow *window)
 
   if (window->decorated)
     meta_window_ensure_frame (window);
+}
+
+void
+meta_window_x11_manage_late (MetaWindow *window)
+{
+  MetaWindowX11 *window_x11 = META_WINDOW_X11 (window);
+  MetaWindowX11Private *priv = meta_window_x11_get_instance_private (window_x11);
 
   /* Now try applying saved stuff from the session */
   {
@@ -1119,7 +1142,8 @@ update_net_frame_extents (MetaWindow *window)
               window->xwindow, data[0], data[1], data[2], data[3]);
 
   meta_x11_error_trap_push (x11_display);
-  XChangeProperty (x11_display->xdisplay, window->xwindow,
+  XChangeProperty (x11_display->xdisplay,
+                   window->frame ? window->frame->xwindow : window->xwindow,
                    x11_display->atom__NET_FRAME_EXTENTS,
                    XA_CARDINAL,
                    32, PropModeReplace, (guchar*) data, 4);
@@ -1198,7 +1222,7 @@ update_gtk_edge_constraints (MetaWindow *window)
 
   meta_x11_error_trap_push (x11_display);
   XChangeProperty (x11_display->xdisplay,
-                   window->xwindow,
+                   window->frame ? window->frame->xwindow : window->xwindow,
                    x11_display->atom__GTK_EDGE_CONSTRAINTS,
                    XA_CARDINAL, 32, PropModeReplace,
                    (guchar*) data, 1);
@@ -1409,16 +1433,21 @@ meta_window_x11_move_resize_internal (MetaWindow                *window,
     }
 
   /* Calculate the new client rect */
-  meta_window_frame_rect_to_client_rect (window, &constrained_rect, &client_rect);
-
-  /* The above client_rect is in root window coordinates. The
-   * values we need to pass to XConfigureWindow are in parent
-   * coordinates, so if the window is in a frame, we need to
-   * correct the x/y positions here. */
   if (window->frame)
     {
-      client_rect.x = borders.total.left;
-      client_rect.y = borders.total.top;
+      MetaFrameBorders borders;
+
+      meta_frame_calc_borders (window->frame, &borders);
+      client_rect = constrained_rect;
+
+      client_rect.x -= borders.invisible.left;
+      client_rect.y -= borders.invisible.top;
+      client_rect.width += borders.invisible.left + borders.invisible.right;
+      client_rect.height += borders.invisible.top + borders.invisible.bottom;
+    }
+  else
+    {
+      meta_window_frame_rect_to_client_rect (window, &constrained_rect, &client_rect);
     }
 
   if (client_rect.x != priv->client_rect.x ||
@@ -1563,7 +1592,7 @@ meta_window_x11_move_resize_internal (MetaWindow                *window,
         }
 
       XConfigureWindow (window->display->x11_display->xdisplay,
-                        window->xwindow,
+                        window->frame ? window->frame->xwindow : window->xwindow,
                         mask,
                         &values);
 
@@ -1573,10 +1602,7 @@ meta_window_x11_move_resize_internal (MetaWindow                *window,
   if (!configure_frame_first && window->frame)
     frame_shape_changed = meta_frame_sync_to_window (window->frame, need_resize_frame);
 
-  if (window->frame)
-    window->buffer_rect = window->frame->rect;
-  else
-    window->buffer_rect = client_rect;
+  window->buffer_rect = client_rect;
 
   if (need_configure_notify)
     send_configure_notify (window);
@@ -2185,7 +2211,8 @@ meta_window_x11_set_net_wm_state (MetaWindow *window)
   meta_verbose ("Setting _NET_WM_STATE with %d atoms", i);
 
   meta_x11_error_trap_push (x11_display);
-  XChangeProperty (x11_display->xdisplay, window->xwindow,
+  XChangeProperty (x11_display->xdisplay,
+                   window->frame ? window->frame->xwindow : window->xwindow,
                    x11_display->atom__NET_WM_STATE,
                    XA_ATOM,
                    32, PropModeReplace, (guchar*) data, i);
@@ -2211,7 +2238,7 @@ meta_window_x11_set_net_wm_state (MetaWindow *window)
           meta_verbose ("Setting _NET_WM_FULLSCREEN_MONITORS");
           meta_x11_error_trap_push (x11_display);
           XChangeProperty (x11_display->xdisplay,
-                           window->xwindow,
+                           window->frame ? window->frame->xwindow : window->xwindow,
                            x11_display->atom__NET_WM_FULLSCREEN_MONITORS,
                            XA_CARDINAL, 32, PropModeReplace,
                            (guchar*) data, 4);
@@ -2222,7 +2249,7 @@ meta_window_x11_set_net_wm_state (MetaWindow *window)
           meta_verbose ("Clearing _NET_WM_FULLSCREEN_MONITORS");
           meta_x11_error_trap_push (x11_display);
           XDeleteProperty (x11_display->xdisplay,
-                           window->xwindow,
+                           window->frame ? window->frame->xwindow : window->xwindow,
                            x11_display->atom__NET_WM_FULLSCREEN_MONITORS);
           meta_x11_error_trap_pop (x11_display);
         }
@@ -3924,7 +3951,8 @@ meta_window_x11_set_allowed_actions_hint (MetaWindow *window)
   meta_verbose ("Setting _NET_WM_ALLOWED_ACTIONS with %d atoms", i);
 
   meta_x11_error_trap_push (x11_display);
-  XChangeProperty (x11_display->xdisplay, window->xwindow,
+  XChangeProperty (x11_display->xdisplay,
+                   window->frame ? window->frame->xwindow : window->xwindow,
                    x11_display->atom__NET_WM_ALLOWED_ACTIONS,
                    XA_ATOM,
                    32, PropModeReplace, (guchar*) data, i);

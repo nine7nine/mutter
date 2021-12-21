@@ -23,7 +23,6 @@
 #define META_FRAME_PRIVATE_H
 
 #include "core/window-private.h"
-#include "ui/frames.h"
 
 struct _MetaFrame
 {
@@ -50,13 +49,10 @@ struct _MetaFrame
 
   guint need_reapply_frame_shape : 1;
   guint borders_cached : 1;
-
-  MetaUIFrame *ui_frame;
 };
 
 void     meta_window_ensure_frame           (MetaWindow *window);
 void     meta_window_destroy_frame          (MetaWindow *window);
-void     meta_frame_queue_draw              (MetaFrame  *frame);
 
 MetaFrameFlags meta_frame_get_flags   (MetaFrame *frame);
 Window         meta_frame_get_xwindow (MetaFrame *frame);
@@ -76,10 +72,9 @@ void meta_frame_get_mask (MetaFrame             *frame,
                           cairo_rectangle_int_t *frame_rect,
                           cairo_t               *cr);
 
-void meta_frame_set_screen_cursor (MetaFrame	*frame,
-				   MetaCursor	cursor);
+gboolean meta_frame_handle_xevent (MetaFrame *frame,
+                                   XEvent    *event);
 
-void meta_frame_update_style (MetaFrame *frame);
-void meta_frame_update_title (MetaFrame *frame);
+void meta_frame_initialize (MetaDisplay *display);
 
 #endif

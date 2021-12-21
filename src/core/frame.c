@@ -31,24 +31,39 @@
 #include "meta/meta-x11-errors.h"
 #include "x11/meta-x11-display-private.h"
 
+#include <X11/Xatom.h>
+
 #define EVENT_MASK (SubstructureRedirectMask |                     \
                     StructureNotifyMask | SubstructureNotifyMask | \
                     ExposureMask | FocusChangeMask)
+
+static void
+send_frame_request (MetaWindow *window)
+{
+  MetaX11Display *x11_display = window->display->x11_display;
+  Display *xdisplay = x11_display->xdisplay;
+  XEvent xev = { 0 };
+
+  xev.xclient.type = ClientMessage;
+  xev.xclient.message_type = XInternAtom (xdisplay, "_MUTTER_FRAME", False);
+  xev.xclient.format = 32;
+  xev.xclient.window = x11_display->xroot;
+  xev.xclient.data.l[0] = window->xwindow;
+
+  meta_x11_error_trap_push (x11_display);
+  XSendEvent (xdisplay, x11_display->xroot, False, ClientMessage, &xev);
+  meta_x11_error_trap_pop (x11_display);
+}
 
 void
 meta_window_ensure_frame (MetaWindow *window)
 {
   MetaFrame *frame;
-  XSetWindowAttributes attrs;
-  gulong create_serial;
-  MetaX11Display *x11_display;
 
   if (window->frame)
     return;
 
-  x11_display = window->display->x11_display;
-
-  frame = g_new (MetaFrame, 1);
+  frame = g_new0 (MetaFrame, 1);
 
   frame->window = window;
   frame->xwindow = None;
@@ -62,29 +77,36 @@ meta_window_ensure_frame (MetaWindow *window)
 
   frame->borders_cached = FALSE;
 
+  send_frame_request (window);
+
+  window->frame = frame;
+
   meta_verbose ("Frame geometry %d,%d  %dx%d",
                 frame->rect.x, frame->rect.y,
                 frame->rect.width, frame->rect.height);
+}
 
-  frame->ui_frame = meta_ui_create_frame (x11_display->ui,
-                                          x11_display->xdisplay,
-                                          frame->window,
-                                          window->xvisual,
-                                          frame->rect.x,
-                                          frame->rect.y,
-                                          frame->rect.width,
-                                          frame->rect.height,
-                                          &create_serial);
-  frame->xwindow = frame->ui_frame->xwindow;
+void
+meta_window_set_frame_xwindow (MetaWindow *window,
+                               Window      xframe)
+{
+  MetaX11Display *x11_display = window->display->x11_display;
+  MetaFrame *frame = window->frame;
+  gulong create_serial = 0;
+
+  meta_verbose ("Setting frame 0x%lx for window %s, "
+                "frame geometry %d,%d  %dx%d",
+                xframe, window->desc,
+                frame->rect.x, frame->rect.y,
+                frame->rect.width, frame->rect.height);
+
+  frame->xwindow = xframe;
 
   meta_stack_tracker_record_add (window->display->stack_tracker,
                                  frame->xwindow,
                                  create_serial);
 
   meta_verbose ("Frame for %s is 0x%lx", frame->window->desc, frame->xwindow);
-  attrs.event_mask = EVENT_MASK;
-  XChangeWindowAttributes (x11_display->xdisplay,
-			   frame->xwindow, CWEventMask, &attrs);
 
   meta_x11_display_register_x_window (x11_display, &frame->xwindow, window);
 
@@ -111,6 +133,10 @@ meta_window_ensure_frame (MetaWindow *window)
   /* FIXME handle this error */
   meta_x11_error_trap_pop (x11_display);
 
+  XSelectInput (x11_display->xdisplay,
+                frame->xwindow,
+                KeyPressMask | PropertyChangeMask);
+
   /* Ensure focus is restored after the unmap/map events triggered
    * by XReparentWindow().
    */
@@ -119,41 +145,6 @@ meta_window_ensure_frame (MetaWindow *window)
 
   /* stick frame to the window */
   window->frame = frame;
-
-  /* Now that frame->xwindow is registered with window, we can set its
-   * style and background.
-   */
-  meta_frame_update_style (frame);
-  meta_frame_update_title (frame);
-
-  meta_ui_map_frame (x11_display->ui, frame->xwindow);
-
-  {
-    MetaBackend *backend = meta_get_backend ();
-    if (META_IS_BACKEND_X11 (backend))
-      {
-        Display *xdisplay = meta_backend_x11_get_xdisplay (META_BACKEND_X11 (backend));
-
-        /* Since the backend selects for events on another connection,
-         * make sure to sync the GTK+ connection to ensure that the
-         * frame window has been created on the server at this point. */
-        XSync (x11_display->xdisplay, False);
-
-        unsigned char mask_bits[XIMaskLen (XI_LASTEVENT)] = { 0 };
-        XIEventMask mask = { XIAllMasterDevices, sizeof (mask_bits), mask_bits };
-
-        XISelectEvents (GDK_DISPLAY_XDISPLAY (gdk_display_get_default ()),
-                        frame->xwindow, &mask, 1);
-
-        XISetMask (mask.mask, XI_ButtonPress);
-        XISetMask (mask.mask, XI_ButtonRelease);
-        XISetMask (mask.mask, XI_Motion);
-        XISetMask (mask.mask, XI_Enter);
-        XISetMask (mask.mask, XI_Leave);
-
-        XISelectEvents (xdisplay, frame->xwindow, &mask, 1);
-      }
-  }
 
   /* Move keybindings to frame instead of window */
   meta_window_grab_keys (window);
@@ -211,8 +202,6 @@ meta_window_destroy_frame (MetaWindow *window)
     }
 
   meta_x11_error_trap_pop (x11_display);
-
-  meta_ui_frame_unmanage (frame->ui_frame);
 
   /* Ensure focus is restored after the unmap/map events triggered
    * by XReparentWindow().
@@ -318,6 +307,77 @@ meta_frame_borders_clear (MetaFrameBorders *self)
   self->visible.right  = self->invisible.right  = self->total.right  = 0;
 }
 
+static void
+meta_frame_query_borders (MetaFrame        *frame,
+                          MetaFrameBorders *borders)
+{
+  MetaWindow *window = frame->window;
+  MetaX11Display *x11_display = window->display->x11_display;
+  int format, res;
+  Atom type;
+  unsigned long nitems, bytes_after;
+  unsigned char *data;
+
+  if (!frame->xwindow)
+    return;
+
+  meta_x11_error_trap_push (x11_display);
+
+  res = XGetWindowProperty (x11_display->xdisplay,
+                            frame->xwindow,
+                            x11_display->atom__GTK_FRAME_EXTENTS,
+                            0, 4,
+                            False, XA_CARDINAL,
+                            &type, &format,
+                            &nitems, &bytes_after,
+                            (unsigned char **) &data);
+
+  if (meta_x11_error_trap_pop_with_return (x11_display) != Success)
+    return;
+
+  if (res == Success && nitems == 4)
+    {
+      borders->invisible = (GtkBorder) {
+        ((long *) data)[0],
+        ((long *) data)[1],
+        ((long *) data)[2],
+        ((long *) data)[3],
+      };
+    }
+
+  g_clear_pointer (&data, XFree);
+
+  meta_x11_error_trap_push (x11_display);
+
+  res = XGetWindowProperty (x11_display->xdisplay,
+                            frame->xwindow,
+                            x11_display->atom__MUTTER_FRAME_HEIGHT,
+                            0, 1,
+                            False, XA_CARDINAL,
+                            &type, &format,
+                            &nitems, &bytes_after,
+                            (unsigned char **) &data);
+
+  if (meta_x11_error_trap_pop_with_return (x11_display) != Success)
+    return;
+
+  if (res == Success && nitems == 1)
+    {
+      borders->visible = (GtkBorder) {
+        0, 0, ((long *) data)[0], 0,
+      };
+    }
+
+  g_clear_pointer (&data, XFree);
+
+  borders->total = (GtkBorder) {
+    borders->invisible.left + frame->cached_borders.visible.left,
+    borders->invisible.right + frame->cached_borders.visible.right,
+    borders->invisible.top + frame->cached_borders.visible.top,
+    borders->invisible.bottom + frame->cached_borders.visible.bottom,
+  };
+}
+
 void
 meta_frame_calc_borders (MetaFrame        *frame,
                          MetaFrameBorders *borders)
@@ -330,7 +390,7 @@ meta_frame_calc_borders (MetaFrame        *frame,
     {
       if (!frame->borders_cached)
         {
-          meta_ui_frame_get_borders (frame->ui_frame, &frame->cached_borders);
+          meta_frame_query_borders (frame, &frame->cached_borders);
           frame->borders_cached = TRUE;
         }
 
@@ -355,19 +415,13 @@ meta_frame_sync_to_window (MetaFrame *frame,
               frame->rect.x + frame->rect.width,
               frame->rect.y + frame->rect.height);
 
-  meta_ui_frame_move_resize (frame->ui_frame,
-			     frame->rect.x,
-			     frame->rect.y,
-			     frame->rect.width,
-			     frame->rect.height);
-
   return need_resize;
 }
 
 cairo_region_t *
 meta_frame_get_frame_bounds (MetaFrame *frame)
 {
-  return meta_ui_frame_get_bounds (frame->ui_frame);
+  return NULL;
 }
 
 void
@@ -375,36 +429,17 @@ meta_frame_get_mask (MetaFrame             *frame,
                      cairo_rectangle_int_t *frame_rect,
                      cairo_t               *cr)
 {
-  meta_ui_frame_get_mask (frame->ui_frame, frame_rect, cr);
-}
+  MetaFrameBorders borders;
 
-void
-meta_frame_queue_draw (MetaFrame *frame)
-{
-  meta_ui_frame_queue_draw (frame->ui_frame);
-}
+  meta_frame_query_borders (frame, &borders);
 
-void
-meta_frame_set_screen_cursor (MetaFrame	*frame,
-			      MetaCursor cursor)
-{
-  MetaX11Display *x11_display;
-  Cursor xcursor;
-  if (cursor == frame->current_cursor)
-    return;
-
-  frame->current_cursor = cursor;
-  x11_display = frame->window->display->x11_display;
-
-  if (cursor == META_CURSOR_DEFAULT)
-    XUndefineCursor (x11_display->xdisplay, frame->xwindow);
-  else
-    {
-      xcursor = meta_x11_display_create_x_cursor (x11_display, cursor);
-      XDefineCursor (x11_display->xdisplay, frame->xwindow, xcursor);
-      XFlush (x11_display->xdisplay);
-      XFreeCursor (x11_display->xdisplay, xcursor);
-    }
+  cairo_rectangle (cr,
+                   borders.invisible.left,
+                   borders.invisible.top,
+                   frame_rect->width,
+                   frame_rect->height);
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  cairo_fill (cr);
 }
 
 Window
@@ -413,15 +448,115 @@ meta_frame_get_xwindow (MetaFrame *frame)
   return frame->xwindow;
 }
 
-void
-meta_frame_update_style (MetaFrame *frame)
+gboolean
+meta_frame_handle_xevent (MetaFrame *frame,
+                          XEvent    *xevent)
 {
-  meta_ui_frame_update_style (frame->ui_frame);
+  MetaWindow *window = frame->window;
+  MetaX11Display *x11_display = window->display->x11_display;
+
+  if (xevent->xany.type == PropertyNotify &&
+      xevent->xproperty.state == PropertyNewValue &&
+      (xevent->xproperty.atom == x11_display->atom__GTK_FRAME_EXTENTS ||
+       xevent->xproperty.atom == x11_display->atom__MUTTER_FRAME_HEIGHT))
+    {
+      meta_frame_query_borders (frame, &frame->cached_borders);
+      meta_window_queue (window, META_QUEUE_MOVE_RESIZE);
+      frame->borders_cached = TRUE;
+      return TRUE;
+    }
+
+  return FALSE;
+}
+
+/**
+ * meta_frame_type_to_string:
+ * @type: a #MetaFrameType
+ *
+ * Converts a frame type enum value to the name string that would
+ * appear in the theme definition file.
+ *
+ * Return value: the string value
+ */
+const char*
+meta_frame_type_to_string (MetaFrameType type)
+{
+  switch (type)
+    {
+    case META_FRAME_TYPE_NORMAL:
+      return "normal";
+    case META_FRAME_TYPE_DIALOG:
+      return "dialog";
+    case META_FRAME_TYPE_MODAL_DIALOG:
+      return "modal_dialog";
+    case META_FRAME_TYPE_UTILITY:
+      return "utility";
+    case META_FRAME_TYPE_MENU:
+      return "menu";
+    case META_FRAME_TYPE_BORDER:
+      return "border";
+    case META_FRAME_TYPE_ATTACHED:
+      return "attached";
+#if 0
+    case META_FRAME_TYPE_TOOLBAR:
+      return "toolbar";
+#endif
+    case  META_FRAME_TYPE_LAST:
+      break;
+    }
+
+  return "<unknown>";
+}
+
+static void
+on_frames_died (GObject      *source,
+                GAsyncResult *result,
+                gpointer      user_data)
+{
+  GSubprocess *proc = user_data;
+  g_autoptr (GError) error = NULL;
+
+  if (!g_subprocess_wait_finish (proc, result, &error))
+    g_warning ("Mutter X11 frames client died: %s\n", error->message);
+}
+
+static void
+on_x11_display_setup (MetaDisplay *display,
+                      gpointer     user_data)
+{
+  g_autoptr(GSubprocessLauncher) launcher = NULL;
+  g_autoptr (GError) error = NULL;
+  GSubprocess *proc;
+  const char *args[2];
+
+  args[0] = MUTTER_LIBEXECDIR "/mutter-x11-frames";
+  args[1] = NULL;
+
+  launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_NONE);
+  g_subprocess_launcher_setenv (launcher, "DISPLAY",
+                                meta_x11_get_display_name (), TRUE);
+
+  proc = g_subprocess_launcher_spawnv (launcher, args, &error);
+  if (proc)
+    g_subprocess_wait_async (proc, NULL, on_frames_died, NULL);
+
+  if (error)
+    g_warning ("Could not launch X11 frames client: %s", error->message);
+}
+
+static void
+on_x11_display_closing (MetaDisplay *display,
+                        gpointer     user_data)
+{
 }
 
 void
-meta_frame_update_title (MetaFrame *frame)
+meta_frame_initialize (MetaDisplay *display)
 {
-  if (frame->window->title)
-    meta_ui_frame_set_title (frame->ui_frame, frame->window->title);
+  g_signal_connect (display, "x11-display-setup",
+                    G_CALLBACK (on_x11_display_setup),
+                    NULL);
+  g_signal_connect (display, "x11-display-closing",
+                    G_CALLBACK (on_x11_display_closing),
+                    NULL);
 }

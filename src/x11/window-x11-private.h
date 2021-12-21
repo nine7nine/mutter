@@ -84,6 +84,8 @@ MetaWindowX11Private * meta_window_x11_get_private (MetaWindowX11 *window_x11);
 void meta_window_x11_set_bypass_compositor_hint (MetaWindowX11            *window_x11,
                                                  MetaBypassCompositorHint  requested_value);
 
+void meta_window_x11_manage_late (MetaWindow *window);
+
 G_END_DECLS
 
 #endif

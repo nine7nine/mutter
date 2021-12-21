@@ -84,7 +84,6 @@
 #include "meta/meta-enum-types.h"
 #include "meta/meta-x11-errors.h"
 #include "meta/prefs.h"
-#include "ui/ui.h"
 #include "x11/meta-x11-display-private.h"
 #include "x11/window-props.h"
 #include "x11/window-x11.h"
@@ -1758,6 +1757,10 @@ meta_window_should_be_showing (MetaWindow  *window)
     return FALSE;
 #endif
 
+  if (window->client_type == META_WINDOW_CLIENT_TYPE_X11 &&
+      window->frame && !window->frame->xwindow)
+    return FALSE;
+
   /* Windows should be showing if they're located on the
    * active workspace and they're showing on their own workspace. */
   return (meta_window_located_on_workspace (window, workspace_manager->active_workspace) &&
@@ -3232,9 +3235,6 @@ meta_window_tile (MetaWindow   *window,
                                      META_MOVE_RESIZE_STATE_CHANGED),
                                     META_GRAVITY_NORTH_WEST,
                                     window->unconstrained_rect);
-
-  if (window->frame)
-    meta_frame_queue_draw (window->frame);
 }
 
 MetaTileMode
@@ -5326,9 +5326,6 @@ meta_window_update_appears_focused (MetaWindow *window)
   meta_window_frame_size_changed (window);
 
   g_object_notify_by_pspec (G_OBJECT (window), obj_props[PROP_APPEARS_FOCUSED]);
-
-  if (window->frame)
-    meta_frame_queue_draw (window->frame);
 }
 
 static gboolean
@@ -5448,9 +5445,6 @@ meta_window_set_focused_internal (MetaWindow *window,
                             window);
         }
 
-      if (window->frame)
-        meta_frame_queue_draw (window->frame);
-
       /* Ungrab click to focus button since the sync grab can interfere
        * with some things you might do inside the focused window, by
        * causing the client to get funky enter/leave events.
@@ -5551,16 +5545,6 @@ meta_window_set_icon_geometry (MetaWindow    *window,
 }
 
 static void
-redraw_icon (MetaWindow *window)
-{
-  /* We could probably be smart and just redraw the icon here,
-   * instead of the whole frame.
-   */
-  if (window->frame)
-    meta_frame_queue_draw (window->frame);
-}
-
-static void
 meta_window_update_icon_now (MetaWindow *window,
                              gboolean    force)
 {
@@ -5586,8 +5570,6 @@ meta_window_update_icon_now (MetaWindow *window,
       g_object_notify_by_pspec (G_OBJECT (window), obj_props[PROP_ICON]);
       g_object_notify_by_pspec (G_OBJECT (window), obj_props[PROP_MINI_ICON]);
       g_object_thaw_notify (G_OBJECT (window));
-
-      redraw_icon (window);
     }
 }
 
@@ -8176,9 +8158,6 @@ meta_window_set_title (MetaWindow *window,
   g_free (window->title);
   window->title = g_strdup (title);
 
-  if (window->frame)
-    meta_frame_update_title (window->frame);
-
   meta_window_update_desc (window);
 
   g_object_notify_by_pspec (G_OBJECT (window), obj_props[PROP_TITLE]);
@@ -8556,16 +8535,6 @@ meta_window_handle_leave (MetaWindow *window)
 {
   if (window->type == META_WINDOW_DOCK && !window->has_focus)
     meta_window_lower (window);
-}
-
-gboolean
-meta_window_handle_ui_frame_event (MetaWindow         *window,
-                                   const ClutterEvent *event)
-{
-  if (!window->frame)
-    return FALSE;
-
-  return meta_ui_frame_handle_event (window->frame->ui_frame, event);
 }
 
 void

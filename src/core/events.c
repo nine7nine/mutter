@@ -409,6 +409,7 @@ meta_display_handle_event (MetaDisplay        *display,
        */
       bypass_clutter = !IS_GESTURE_EVENT (event);
 
+#if 0
       /* When double clicking to un-maximize an X11 window under Wayland,
        * there is a race between X11 and Wayland protocols and the X11
        * XConfigureWindow may be processed by Xwayland before the button
@@ -425,6 +426,7 @@ meta_display_handle_event (MetaDisplay        *display,
                             event->type == CLUTTER_TOUCH_BEGIN);
         }
       else
+#endif
         {
           bypass_wayland = meta_window_has_modals (window);
           meta_window_handle_ungrabbed_event (window, event);
