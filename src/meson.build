@@ -1126,6 +1126,7 @@ pkg.generate(libmutter,
 )
 
 subdir('compositor/plugins')
+subdir('frames')
 
 if have_core_tests
   subdir('tests')
