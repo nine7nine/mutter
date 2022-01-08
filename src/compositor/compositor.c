@@ -1229,6 +1229,7 @@ prefs_changed_cb(MetaPreference pref,
     case META_PREF_CORNER_RADIUS:
     case META_PREF_CLIP_EDGE_PADDING:
     case META_PREF_BORDER_WIDTH:
+    case META_PREF_BORDER_BRIGHTNESS:
       if (pref == META_PREF_CLIP_EDGE_PADDING)
         meta_window_actor_update_clip_padding (l->data);
       
